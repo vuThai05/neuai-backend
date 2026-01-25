@@ -3,7 +3,7 @@
 
 import os
 
-import google.generativeai as genai
+from google import genai
 from dotenv import load_dotenv
 
 from src.rag import RAGRetriever, build_context, build_prompt
@@ -14,10 +14,9 @@ load_dotenv()
 api_key = os.environ.get("GEMINI_API_KEY")
 if not api_key:
     print("Warning: GEMINI_API_KEY not found. Will only display RAG retrieval results.")
-    model = None
+    client = None
 else:
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-2.5-flash")
+    client = genai.Client(api_key=api_key)
 
 print("Loading RAG retriever...")
 retriever = RAGRetriever(use_hybrid=True)
@@ -44,7 +43,7 @@ for i, d in enumerate(docs, start=1):
         print(f"  Link: {source['permalink_url']}")
     print()
 
-if model:
+if client:
     print(f"\n{'='*60}")
     print("GEMINI ANSWER:")
     print(f"{'='*60}\n")
@@ -53,8 +52,11 @@ if model:
     prompt = build_prompt(query, context)
     
     try:
-        resp = model.generate_content(prompt)
-        answer = getattr(resp, "text", "").strip() or "[No response from Gemini]"
+        resp = client.models.generate_content(
+            model="gemini-2.5-flash-lite",
+            contents=prompt
+        )
+        answer = resp.text.strip() if resp.text else "[No response from Gemini]"
         print(answer)
     except Exception as e:
         print(f"Error calling Gemini: {e}")

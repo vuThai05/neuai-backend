@@ -10,7 +10,7 @@ Usage:
 
 import os
 
-import google.generativeai as genai
+from google import genai
 from dotenv import load_dotenv
 
 from src.rag import RAGRetriever, build_context, build_prompt
@@ -22,23 +22,22 @@ def load_env() -> None:
     load_dotenv()
 
 
-def get_gemini_model() -> "genai.GenerativeModel":
-    """Initialize and return Gemini model instance."""
+def get_gemini_client() -> genai.Client:
+    """Initialize and return Gemini client instance."""
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError(
             "GEMINI_API_KEY not found. Please create a '.env' or 'gemini.env' file "
             "in the project root with: GEMINI_API_KEY=your_real_key"
         )
-    genai.configure(api_key=api_key)
-    return genai.GenerativeModel("gemini-1.5-flash")
+    return genai.Client(api_key=api_key)
 
 
 def main() -> None:
     """Main entry point for the CLI chatbot."""
     load_env()
     retriever = RAGRetriever(use_hybrid=True)
-    model = get_gemini_model()
+    client = get_gemini_client()
 
     print("RAG + Gemini chatbot tren du lieu Facebook group.")
     print("Nhap cau hoi (hoac 'exit' de thoat).")
@@ -56,8 +55,11 @@ def main() -> None:
 
         print("\n--- Bot (Gemini) ---")
         try:
-            resp = model.generate_content(prompt)
-            answer = getattr(resp, "text", "").strip() or "[Khong nhan duoc text tu Gemini]"
+            resp = client.models.generate_content(
+                model="gemini-2.5-flash-lite",
+                contents=prompt
+            )
+            answer = resp.text.strip() if resp.text else "[Khong nhan duoc text tu Gemini]"
         except Exception as exc:
             answer = f"Loi khi goi Gemini: {exc}"
         print(answer)
