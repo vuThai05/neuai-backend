@@ -12,11 +12,8 @@ from google import genai
 from src.rag import RAGRetriever, build_context, build_prompt
 from src.utils.config import get_mongo_client, MONGO_DB_NAME
 
-
-# Load environment variables from `.env` for local development.
 # In production, you typically rely on real environment variables instead.
 load_dotenv()
-
 
 class ChatRequest(BaseModel):
     """Shape of the JSON request body sent from the frontend."""
@@ -89,27 +86,6 @@ async def on_startup() -> None:
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
-    """
-    Main chat endpoint consumed by the Next.js frontend.
-    Request:
-        POST /chat
-        {
-          "question": "Your question here"
-        }
-    Response:
-        {
-          "answer": "...",
-          "sources": [
-            {
-              "text": "...",
-              "score": 0.9,
-              "dense_score": 0.8,
-              "link": "https://..."
-            },
-            ...
-          ]
-        }
-    """
 
     if not payload.question.strip():
         raise HTTPException(status_code=400, detail="Question must not be empty.")
@@ -140,7 +116,6 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
             else "No response from Gemini."
         )
 
-
         # 3) Map internal docs into frontend-friendly `sources`
         sources: List[SourceModel] = []
         for d in docs:
@@ -164,4 +139,3 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
         # Catch-all for unexpected backend errors
         print(f"/chat endpoint error: {exc}")
         raise HTTPException(status_code=500, detail="Internal server error.")
-
