@@ -3,15 +3,13 @@
 import os
 from pymongo import MongoClient
 
-# Prefer environment variable for local/dev & production; fall back to the existing URI
-# if not provided. For security, you should set MONGODB_URI in `.env` and avoid hardcoding
-# real credentials in source.
+'''
 MONGO_URI = os.environ.get(
     "MONGODB_URI",
     "mongodb+srv://Neuaiagent_db:rjuhWX6fKqcgVthx@cluster0-newproject.7uk6vxn.mongodb.net/?appName=Cluster0-Newproject",
 )
 MONGO_DB_NAME = "chatbotNeu"
-
+'''
 
 def get_mongo_client() -> MongoClient:
     """Get MongoDB client instance."""
