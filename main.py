@@ -1,17 +1,3 @@
-"""
-FastAPI backend for the RAG + Gemini chatbot.
-
-Exposes a single `/chat` POST endpoint used by the Next.js frontend.
-Performs:
-  - MongoDB-backed RAG retrieval (via existing `RAGRetriever`)
-  - Gemini API call to generate an answer
-
-Environment variables (local development):
-  - MONGODB_URI: MongoDB connection string
-  - GEMINI_API_KEY: Google Gemini API key
-  - FRONTEND_URL: Allowed CORS origin for the frontend
-"""
-
 from __future__ import annotations
 
 import os
@@ -63,15 +49,6 @@ def get_gemini_client() -> genai.Client:
         )
 
 def init_retriever() -> RAGRetriever:
-    """
-    Initialize the RAG retriever.
-    This will connect to MongoDB using the existing configuration in `src.utils.config`
-    and load embeddings into memory. Any connection/embedding issues will surface at
-    startup, making failures clear.
-    """
-    # Ensure MongoDB is reachable early; this uses MONGO_URI from config.
-    # If you later move MONGO_URI into an environment variable, update `config.py`
-    # to read from `os.environ` and this import will pick it up.
     _client = get_mongo_client()
     _client[MONGO_DB_NAME].list_collection_names()
 

@@ -1,13 +1,3 @@
-"""
-CLI RAG + Gemini Chatbot.
-
-Interactive command-line interface for RAG-powered question answering.
-Uses BGE-M3 for retrieval and Google Gemini for answer generation.
-
-Usage:
-    python chat_cli.py
-"""
-
 import os
 
 from google import genai
@@ -28,7 +18,6 @@ def get_gemini_client() -> genai.Client:
     if not api_key:
         raise RuntimeError(
             "GEMINI_API_KEY not found. Please create a '.env' or 'gemini.env' file "
-            "in the project root with: GEMINI_API_KEY=your_real_key"
         )
     return genai.Client(api_key=api_key)
 
