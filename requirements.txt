@@ -1,5 +1,4 @@
 torch>=2.0.0
-# Dung version transformers on dinh, chua bat buoc torch>=2.6
 transformers==4.44.2
 FlagEmbedding>=1.2.10
 pymongo>=4.10.0
@@ -8,5 +7,3 @@ numpy>=1.26.0
 google-genai>=0.3.0
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
-
-
