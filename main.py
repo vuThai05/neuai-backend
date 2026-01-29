@@ -3,17 +3,17 @@ from __future__ import annotations
 import os
 from typing import Any, List, Optional
 
+# Load environment variables FIRST, before any other imports that need them
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from dotenv import load_dotenv
 from google import genai
 
 from src.rag import RAGRetriever, build_context, build_prompt
 from src.utils.config import get_mongo_client, MONGO_DB_NAME
-
-# In production, you typically rely on real environment variables instead.
-load_dotenv()
 
 class ChatRequest(BaseModel):
     """Shape of the JSON request body sent from the frontend."""
