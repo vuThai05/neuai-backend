@@ -267,3 +267,29 @@ GEMINI_API_KEY=your_key_here
 
 [Add contact information if needed]
 
+# How to Run the Backend Locally (Python)
+## 1. Activate the Python Virtual Environment
+Navigate to the backend directory and activate the virtual environment.
+
+### macOS / Linux
+```bash
+cd backend
+source .venv/bin/activate
+```
+### Windows (PowerShell)
+```
+cd backend
+.venv\Scripts\Activate.ps1
+```
+Upgrade pip
+```
+python -m pip install --upgrade pip
+```
+Ensure all required dependencies are installed
+```
+pip install -r requirements.txt
+```
+Run server
+```
+uvicorn main:app --reload --port 8000
+```
