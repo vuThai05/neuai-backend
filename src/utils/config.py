@@ -5,7 +5,7 @@ from pymongo import MongoClient
 
 MONGO_URI = os.environ.get(
     "MONGODB_URI",
-    "mongodb+srv://Neuaiagent_db:rjuhWX6fKqcgVthx@cluster0-newproject.7uk6vxn.mongodb.net/?appName=Cluster0-Newproject",
+    "mongodb+srv: ###",
 )
 MONGO_DB_NAME = "chatbotNeu"
 
