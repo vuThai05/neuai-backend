@@ -7,7 +7,6 @@ from FlagEmbedding import BGEM3FlagModel
 
 from src.utils.config import MONGO_DB_NAME, get_mongo_client
 
-
 def _cosine_sim(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """Calculate cosine similarity between vectors."""
     if a.ndim == 1:
