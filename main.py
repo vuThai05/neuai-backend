@@ -14,10 +14,12 @@ from google import genai
 
 from src.rag import RAGRetriever, build_context, build_prompt
 from src.utils.config import get_mongo_client, MONGO_DB_NAME
+from src.chatlog import ChatLogRepository
 
 class ChatRequest(BaseModel):
     """Shape of the JSON request body sent from the frontend."""
     question: str
+    conversation_id: Optional[str] = None  # For existing conversations
 
 
 class SourceModel(BaseModel):
@@ -32,6 +34,7 @@ class ChatResponse(BaseModel):
     """Shape of the JSON response consumed by the frontend."""
     answer: str
     sources: List[SourceModel]
+    conversation_id: str  # Return conversation ID for client tracking
 
 
 def get_gemini_client() -> genai.Client:
@@ -71,14 +74,16 @@ app.add_middleware(
 # Lazily initialized global instances so that startup failures are explicit.
 retriever: Optional[RAGRetriever] = None
 gemini_client: Optional[genai.Client] = None
+chatlog_repo: Optional[ChatLogRepository] = None
 
 @app.on_event("startup")
 async def on_startup() -> None:
     """Initialize long-lived resources on application startup."""
-    global retriever, gemini_client
+    global retriever, gemini_client, chatlog_repo
     try:
         retriever = init_retriever()
         gemini_client = get_gemini_client()
+        chatlog_repo = ChatLogRepository()
     except Exception as exc:  # pragma: no cover - startup failure path
         # Log and re-raise so the process fails fast instead of serving broken endpoints
         print(f"Failed to initialize backend services: {exc}")
@@ -90,13 +95,25 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
     if not payload.question.strip():
         raise HTTPException(status_code=400, detail="Question must not be empty.")
 
-    if retriever is None or gemini_client is None:
+    if retriever is None or gemini_client is None or chatlog_repo is None:
         raise HTTPException(
             status_code=503,
             detail="Backend services are not ready yet. Please try again shortly.",
         )
 
+    conversation_id: Optional[str] = None
+
     try:
+        # 0) Create or get conversation
+        if payload.conversation_id:
+            conversation_id = payload.conversation_id
+            # Add user message to existing conversation
+            chatlog_repo.add_user_message(conversation_id, payload.question)
+        else:
+            # Create new conversation with first user message
+            chat_log = chatlog_repo.create_conversation(payload.question)
+            conversation_id = chat_log.id
+
         # 1) Retrieve relevant documents from MongoDB-backed knowledge base
         docs = retriever.retrieve(payload.question, top_k=5)
         if not docs:
@@ -118,6 +135,7 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
 
         # 3) Map internal docs into frontend-friendly `sources`
         sources: List[SourceModel] = []
+        sources_for_log: List[Dict[str, Any]] = []
         for d in docs:
             src_meta: dict[str, Any] = d.get("source", {}) or {}
             link = src_meta.get("permalink_url")
@@ -129,8 +147,25 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
                     link=link,
                 )
             )
+            sources_for_log.append({
+                "link": link,
+                "text": d.get("text", ""),
+                "score": float(d.get("score", 0.0)),
+                "dense_score": float(d.get("dense_score", 0.0)),
+            })
 
-        return ChatResponse(answer=answer_text, sources=sources)
+        # 4) Save assistant response to chat log
+        chatlog_repo.add_assistant_message(
+            conversation_id,
+            answer_text,
+            sources_for_log,
+        )
+
+        return ChatResponse(
+            answer=answer_text,
+            sources=sources,
+            conversation_id=conversation_id,
+        )
 
     except HTTPException:
         # Re-raise explicit HTTP errors unchanged
@@ -138,4 +173,71 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
     except Exception as exc:
         # Catch-all for unexpected backend errors
         print(f"/chat endpoint error: {exc}")
+        raise HTTPException(status_code=500, detail="Internal server error.")
+
+
+@app.get("/conversations")
+async def list_conversations() -> dict:
+    """Get list of recent conversations."""
+    if chatlog_repo is None:
+        raise HTTPException(status_code=503, detail="Chat logging service not ready.")
+    
+    try:
+        conversations = chatlog_repo.list_conversations(limit=50)
+        return {
+            "conversations": [
+                {
+                    "id": conv.id,
+                    "title": conv.title,
+                    "created_at": conv.created_at,
+                    "updated_at": conv.updated_at,
+                    "message_count": len(conv.messages),
+                }
+                for conv in conversations
+            ]
+        }
+    except Exception as exc:
+        print(f"/conversations endpoint error: {exc}")
+        raise HTTPException(status_code=500, detail="Internal server error.")
+
+
+@app.get("/conversations/{conversation_id}")
+async def get_conversation(conversation_id: str) -> dict:
+    """Get a specific conversation by ID."""
+    if chatlog_repo is None:
+        raise HTTPException(status_code=503, detail="Chat logging service not ready.")
+    
+    try:
+        chat_log = chatlog_repo.get_conversation(conversation_id)
+        if not chat_log:
+            raise HTTPException(status_code=404, detail="Conversation not found.")
+        
+        return {
+            "id": chat_log.id,
+            "title": chat_log.title,
+            "created_at": chat_log.created_at,
+            "updated_at": chat_log.updated_at,
+            "messages": [
+                {
+                    "id": msg.id,
+                    "type": msg.type,
+                    "content": msg.content,
+                    "timestamp": msg.timestamp,
+                    "refs": [
+                        {
+                            "link": ref.link,
+                            "text": ref.text,
+                            "score": ref.score,
+                            "dense_score": ref.dense_score,
+                        }
+                        for ref in (msg.refs or [])
+                    ] if msg.refs else None,
+                }
+                for msg in chat_log.messages
+            ],
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"/conversations/{conversation_id} endpoint error: {exc}")
         raise HTTPException(status_code=500, detail="Internal server error.")
