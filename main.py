@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from time import perf_counter
 from typing import Any, List, Optional
 
 # Load environment variables FIRST, before any other imports that need them
@@ -35,6 +36,7 @@ class ChatResponse(BaseModel):
     answer: str
     sources: List[SourceModel]
     conversation_id: str  # Return conversation ID for client tracking
+    timing_ms: dict[str, float]
 
 
 def get_gemini_client() -> genai.Client:
@@ -102,6 +104,10 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
         )
 
     conversation_id: Optional[str] = None
+    total_started_at = perf_counter()
+    retrieval_ms = 0.0
+    generation_ms = 0.0
+    log_write_ms = 0.0
 
     try:
         # 0) Create or get conversation
@@ -115,7 +121,9 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
             conversation_id = chat_log.id
 
         # 1) Retrieve relevant documents from MongoDB-backed knowledge base
+        retrieval_started_at = perf_counter()
         docs = retriever.retrieve(payload.question, top_k=5)
+        retrieval_ms = round((perf_counter() - retrieval_started_at) * 1000, 2)
         if not docs:
             context = ""
         else:
@@ -123,10 +131,12 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
 
         # 2) Build prompt and send to Gemini
         prompt = build_prompt(payload.question, context)
+        generation_started_at = perf_counter()
         resp = gemini_client.models.generate_content(
             model="gemini-2.5-flash-lite",
             contents=prompt
         )
+        generation_ms = round((perf_counter() - generation_started_at) * 1000, 2)
         answer_text = (
             resp.text.strip()
             if getattr(resp, "text", None)
@@ -135,7 +145,7 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
 
         # 3) Map internal docs into frontend-friendly `sources`
         sources: List[SourceModel] = []
-        sources_for_log: List[Dict[str, Any]] = []
+        sources_for_log: List[dict[str, Any]] = []
         for d in docs:
             src_meta: dict[str, Any] = d.get("source", {}) or {}
             link = src_meta.get("permalink_url")
@@ -155,16 +165,26 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
             })
 
         # 4) Save assistant response to chat log
+        log_write_started_at = perf_counter()
         chatlog_repo.add_assistant_message(
             conversation_id,
             answer_text,
             sources_for_log,
         )
+        log_write_ms = round((perf_counter() - log_write_started_at) * 1000, 2)
+
+        total_ms = round((perf_counter() - total_started_at) * 1000, 2)
 
         return ChatResponse(
             answer=answer_text,
             sources=sources,
             conversation_id=conversation_id,
+            timing_ms={
+                "total": total_ms,
+                "retrieval": retrieval_ms,
+                "generation": generation_ms,
+                "log_write": log_write_ms,
+            },
         )
 
     except HTTPException:
