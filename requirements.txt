@@ -4,7 +4,6 @@ FlagEmbedding>=1.2.10
 pymongo>=4.10.0
 python-dotenv>=1.0.1
 numpy>=1.26.0
-google-genai>=0.3.0
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 qdrant-client>=1.7.0

@@ -308,7 +308,7 @@ def build_single_context(doc: Dict[str, Any], retriever: Optional["RAGRetriever"
 
 
 def build_prompt(user_question: str, context: str) -> str:
-    """Build prompt for LLM (compatible with Gemini, OpenAI, Groq, etc.)."""
+    """Build prompt for LLM providers (Ollama, OpenAI, Groq, etc.)."""
     return (
         "Ban la tro ly tra loi cau hoi CHI DUA TREN noi dung trong context duoc cung cap.\n"
         "YEU CAU:\n"

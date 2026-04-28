@@ -1,12 +1,12 @@
 # RAG_chatbot
 
-A professional Retrieval-Augmented Generation (RAG) chatbot system using BGE-M3 embeddings and Google Gemini for question answering on Facebook group data.
+A professional Retrieval-Augmented Generation (RAG) chatbot system using BGE-M3 embeddings and Ollama for question answering on Facebook group data.
 
 ## 🚀 Features
 
 - **Hybrid Search**: Combines dense (semantic) and sparse (keyword-based) embeddings for superior retrieval accuracy
 - **BGE-M3 Model**: State-of-the-art multilingual embedding model from BAAI
-- **Gemini Integration**: Powered by Google's Gemini for natural language generation
+- **Ollama Integration**: Use self-hosted/local models via Ollama for natural language generation
 - **MongoDB Backend**: Efficient document storage and retrieval
 - **CLI Interface**: Clean command-line interface for interactive chat
 
@@ -27,13 +27,13 @@ The system follows a RAG (Retrieval-Augmented Generation) pipeline:
 1. **Data Indexing**: Posts and comments from MongoDB are normalized into a knowledge base
 2. **Embedding Generation**: BGE-M3 model generates both dense and sparse embeddings
 3. **Retrieval**: Hybrid search combines semantic and keyword matching
-4. **Generation**: Gemini LLM generates answers based on retrieved context
+4. **Generation**: Ollama LLM generates answers based on retrieved context
 
 ### Key Components
 
 - **RAGRetriever**: Handles document retrieval using hybrid search
 - **BGE-M3 Embeddings**: 1024-dimensional dense vectors + sparse token vectors
-- **Gemini LLM**: Generates natural language responses
+- **Ollama LLM**: Generates natural language responses
 
 ## 📦 Installation
 
@@ -41,7 +41,7 @@ The system follows a RAG (Retrieval-Augmented Generation) pipeline:
 
 - Python 3.8+
 - MongoDB (local or cloud instance)
-- Google Gemini API key
+- Ollama server endpoint and model
 
 ### Step 1: Clone and Install Dependencies
 
@@ -56,13 +56,15 @@ pip install -r requirements.txt
 
 ### Step 2: Configure Environment
 
-Create a `gemini.env` file in the project root:
+Configure your `.env` file in the project root:
 
 ```bash
-GEMINI_API_KEY=your_gemini_api_key_here
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=qwen3:8b
+OLLAMA_TIMEOUT_SECONDS=60
 ```
 
-Alternatively, you can use a `.env` file with the same format.
+If you use a remote Ollama endpoint, set `OLLAMA_BASE_URL` accordingly.
 
 ### Step 3: Configure MongoDB
 
@@ -106,8 +108,8 @@ Example interaction:
 ```
 You: thầy Phùng Ngọc Tùng dạy cái gì
 
---- Bot (Gemini) ---
-[Answer from Gemini based on retrieved context]
+--- Bot (Ollama) ---
+[Answer from Ollama based on retrieved context]
 
 --- Nguon context ---
 [DOC 1] final_score=0.856 (dense=0.712)
@@ -143,7 +145,7 @@ chatbot/
 ├── requirements.txt           # Python dependencies
 ├── .gitignore
 ├── README.md
-└── gemini.env                 # Environment variables (not in git)
+└── .env                       # Environment variables (not in git)
 ```
 
 ## 📦 Requirements
@@ -156,7 +158,7 @@ chatbot/
 - `pymongo>=4.10.0` - MongoDB driver
 - `python-dotenv>=1.0.1` - Environment variable management
 - `numpy>=1.26.0` - Numerical computing
-- `google-generativeai>=0.8.0` - Gemini API client
+- `urllib` (Python standard library) - Ollama HTTP calls
 
 ### Model Requirements
 
@@ -180,7 +182,7 @@ Knowledge Base + Embeddings
     ↓
 [chat_cli.py]
     ↓
-User Query → RAG Retrieval → Gemini → Answer
+User Query → RAG Retrieval → Ollama → Answer
 ```
 
 ### Retrieval Process
@@ -192,7 +194,7 @@ User Query → RAG Retrieval → Gemini → Answer
 3. **Hybrid Scoring**: Weighted combination (default: 70% dense, 30% sparse)
 4. **Top-K Selection**: Returns top 5 most relevant documents
 5. **Context Building**: Documents formatted for LLM
-6. **Generation**: Gemini generates answer from context
+6. **Generation**: Ollama generates answer from context
 
 ### Score Interpretation
 
@@ -242,11 +244,12 @@ Run the embedding generation script:
 python scripts/embed_bge_m3.py
 ```
 
-### "Khong tim thay GEMINI_API_KEY"
+### "Khong tim thay OLLAMA_BASE_URL hoac OLLAMA_MODEL"
 
-Ensure `gemini.env` exists with:
+Ensure `.env` exists with:
 ```
-GEMINI_API_KEY=your_key_here
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=qwen3:8b
 ```
 
 ### Slow Retrieval

@@ -29,7 +29,6 @@ ENV/
 # Environment variables
 .env
 *.env
-gemini.env
 
 # IDE
 .vscode/

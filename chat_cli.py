@@ -1,8 +1,8 @@
 """
-CLI RAG + Gemini Chatbot.
+CLI RAG + Ollama Chatbot.
 
 Interactive command-line interface for RAG-powered question answering.
-Uses BGE-M3 for retrieval and Google Gemini for answer generation.
+Uses BGE-M3 for retrieval and Ollama for answer generation.
 
 Usage:
     python chat_cli.py
@@ -11,38 +11,44 @@ Usage:
 import os
 from typing import Optional
 
-import google.generativeai as genai
 from dotenv import load_dotenv
 
+from src.llm import OllamaClient, OllamaConfig
 from src.rag import RAGRetriever, build_prompt, build_single_context
 from src.chatlog import ChatLogRepository
 
 
 def load_env() -> None:
-    """Load environment variables from gemini.env or .env file."""
-    load_dotenv("gemini.env")
+    """Load environment variables from .env file."""
     load_dotenv()
 
 
-def get_gemini_model() -> "genai.GenerativeModel":
-    """Initialize and return Gemini model instance."""
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
+def get_ollama_client() -> OllamaClient:
+    """Initialize and return Ollama client instance."""
+    base_url = os.environ.get("OLLAMA_BASE_URL")
+    model = os.environ.get("OLLAMA_MODEL")
+    if not base_url or not model:
         raise RuntimeError(
-            "GEMINI_API_KEY not found. Please create a '.env' or 'gemini.env' file "
-            "in the project root with: GEMINI_API_KEY=your_real_key"
+            "Missing OLLAMA_BASE_URL or OLLAMA_MODEL. "
+            "Please set them in the backend '.env' file."
         )
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-2.5-flash")
-    print(f"✅ Đang sử dụng model: gemini-2.5-flash")
-    return model
+    timeout_seconds = int(os.environ.get("OLLAMA_TIMEOUT_SECONDS", "60"))
+    client = OllamaClient(
+        OllamaConfig(
+            base_url=base_url,
+            model=model,
+            timeout_seconds=timeout_seconds,
+        )
+    )
+    print(f"✅ Đang sử dụng Ollama model: {client.model}")
+    return client
 
 
 def main() -> None:
     """Main entry point for the CLI chatbot."""
     load_env()
     retriever = RAGRetriever(use_hybrid=True)
-    model = get_gemini_model()
+    model = get_ollama_client()
     
     try:
         chatlog_repo = ChatLogRepository()
@@ -52,7 +58,7 @@ def main() -> None:
         print("❌ Chat logging sẽ KO được lưu vào database")
         chatlog_repo = None
 
-    print("RAG + Gemini chatbot tren du lieu Facebook group.")
+    print("RAG + Ollama chatbot tren du lieu Facebook group.")
     print("Nhap cau hoi (hoac 'exit' de thoat).")
     print()
 
@@ -93,7 +99,7 @@ def main() -> None:
         docs = retriever.retrieve(question, top_k=5)
         
         if not docs:
-            print("\n--- Bot (Gemini) ---")
+            print("\n--- Bot (Ollama) ---")
             answer = "Hiện chưa có dữ liệu để trả lời câu hỏi này."
             print(answer)
             # Lưu assistant response (không có sources)
@@ -108,7 +114,7 @@ def main() -> None:
         top_doc = docs[0]
         top_score = top_doc.get("score", 0.0)
 
-        print("\n--- Bot (Gemini) ---")
+        print("\n--- Bot (Ollama) ---")
         
         answer = ""
         sources_for_log = []
@@ -155,13 +161,12 @@ def main() -> None:
             prompt = build_prompt(question, context)
 
             try:
-                resp = model.generate_content(prompt)
-                answer = getattr(resp, "text", "").strip() or "[Khong nhan duoc text tu Gemini]"
-                # Kiểm tra nếu Gemini trả lời không có dữ liệu
+                answer = model.generate(prompt)
+                # Kiểm tra nếu Ollama trả lời không có dữ liệu
                 if not answer or answer.lower() in ["không rõ", "không có", "không tìm thấy"]:
                     answer = "Hiện chưa có dữ liệu để trả lời câu hỏi này."
             except Exception as exc:
-                answer = f"Loi khi goi Gemini: {exc}"
+                answer = f"Loi khi goi Ollama: {exc}"
             
             # Chuẩn bị sources để lưu
             for d in docs:

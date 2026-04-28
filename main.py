@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 # Load environment variables FIRST, before any other imports that need them
 from dotenv import load_dotenv
@@ -10,8 +10,8 @@ load_dotenv()
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from google import genai
 
+from src.llm import OllamaClient, OllamaConfig
 from src.rag import RAGRetriever, build_context, build_prompt
 from src.utils.config import get_mongo_client, MONGO_DB_NAME
 from src.chatlog import ChatLogRepository
@@ -37,16 +37,27 @@ class ChatResponse(BaseModel):
     conversation_id: str  # Return conversation ID for client tracking
 
 
-def get_gemini_client() -> genai.Client:
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
+def get_ollama_client() -> OllamaClient:
+    base_url = os.environ.get("OLLAMA_BASE_URL")
+    model = os.environ.get("OLLAMA_MODEL")
+
+    if not base_url:
         raise RuntimeError(
-            "GEMINI_API_KEY not found. Please set it in your environment or in the backend `.env` file."
+            "OLLAMA_BASE_URL not found. Please set it in your environment or in the backend `.env` file."
+        )
+    if not model:
+        raise RuntimeError(
+            "OLLAMA_MODEL not found. Please set it in your environment or in the backend `.env` file."
         )
 
-    return genai.Client(
-        api_key=api_key,
+    timeout_seconds = int(os.environ.get("OLLAMA_TIMEOUT_SECONDS", "60"))
+    return OllamaClient(
+        OllamaConfig(
+            base_url=base_url,
+            model=model,
+            timeout_seconds=timeout_seconds,
         )
+    )
 
 def init_retriever() -> RAGRetriever:
     _client = get_mongo_client()
@@ -54,7 +65,7 @@ def init_retriever() -> RAGRetriever:
 
     return RAGRetriever(use_hybrid=True)
 
-app = FastAPI(title="RAG + Gemini Chatbot API")
+app = FastAPI(title="RAG + Ollama Chatbot API")
 # --- CORS configuration ---
 
 frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
@@ -73,16 +84,16 @@ app.add_middleware(
 
 # Lazily initialized global instances so that startup failures are explicit.
 retriever: Optional[RAGRetriever] = None
-gemini_client: Optional[genai.Client] = None
+ollama_client: Optional[OllamaClient] = None
 chatlog_repo: Optional[ChatLogRepository] = None
 
 @app.on_event("startup")
 async def on_startup() -> None:
     """Initialize long-lived resources on application startup."""
-    global retriever, gemini_client, chatlog_repo
+    global retriever, ollama_client, chatlog_repo
     try:
         retriever = init_retriever()
-        gemini_client = get_gemini_client()
+        ollama_client = get_ollama_client()
         chatlog_repo = ChatLogRepository()
     except Exception as exc:  # pragma: no cover - startup failure path
         # Log and re-raise so the process fails fast instead of serving broken endpoints
@@ -95,7 +106,7 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
     if not payload.question.strip():
         raise HTTPException(status_code=400, detail="Question must not be empty.")
 
-    if retriever is None or gemini_client is None or chatlog_repo is None:
+    if retriever is None or ollama_client is None or chatlog_repo is None:
         raise HTTPException(
             status_code=503,
             detail="Backend services are not ready yet. Please try again shortly.",
@@ -121,17 +132,9 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
         else:
             context = build_context(docs)
 
-        # 2) Build prompt and send to Gemini
+        # 2) Build prompt and send to Ollama
         prompt = build_prompt(payload.question, context)
-        resp = gemini_client.models.generate_content(
-            model="gemini-2.5-flash-lite",
-            contents=prompt
-        )
-        answer_text = (
-            resp.text.strip()
-            if getattr(resp, "text", None)
-            else "No response from Gemini."
-        )
+        answer_text = ollama_client.generate(prompt)
 
         # 3) Map internal docs into frontend-friendly `sources`
         sources: List[SourceModel] = []
