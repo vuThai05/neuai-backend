@@ -1,5 +1,6 @@
 """RAG retriever implementation using BGE-M3 with hybrid search."""
 
+import logging
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -7,6 +8,10 @@ from FlagEmbedding import BGEM3FlagModel
 from qdrant_client import QdrantClient
 
 from src.utils.config import MONGO_DB_NAME, get_mongo_client, get_qdrant_client, QDRANT_COLLECTION_NAME
+from src.utils.contracts import summarize_validation
+
+
+logger = logging.getLogger(__name__)
 
 
 def _cosine_sim(a: np.ndarray, b: np.ndarray) -> np.ndarray:
@@ -97,7 +102,18 @@ class RAGRetriever:
                 f"Found {len(points)} points in Qdrant but none have embeddings. "
                 "Please run scripts/embed_bge_m3.py to generate embeddings."
             )
-        
+
+        # Soft contract validation: sample first ~50 payloads and emit warnings
+        # for missing/unexpected fields. See docs/crawler-contract.md.
+        sample_payloads = [p.payload for p in valid_points[:50] if p.payload]
+        summary = summarize_validation(sample_payloads)
+        if summary["warnings"]:
+            for warn, count in summary["warnings"].items():
+                logger.warning(
+                    "crawler-contract violation: %s (%d/%d sampled)",
+                    warn, count, summary["samples"],
+                )
+
         # Extract data from Qdrant points
         self.point_ids: List[int] = [p.id for p in valid_points]
         self.doc_ids: List[str] = [p.payload.get("doc_id", "") for p in valid_points]
@@ -251,74 +267,23 @@ class RAGRetriever:
 
 
 def build_context(retrieved_docs: List[Dict[str, Any]]) -> str:
-    """Format retrieved documents into a context string for LLM."""
-    parts = []
-    for i, d in enumerate(retrieved_docs, start=1):
-        meta = d.get("source", {})
-        link = meta.get("permalink_url") or ""
-        dense_score = d.get("dense_score")
-        if dense_score is not None:
-            parts.append(
-                f"[DOC {i}] final_score={d['score']:.3f} (dense={dense_score:.3f})\n"
-                f"text: {d['text']}\n"
-                f"source: {link}\n"
-            )
-        else:
-            parts.append(
-                f"[DOC {i}] score={d['score']:.3f}\n"
-                f"text: {d['text']}\n"
-                f"source: {link}\n"
-            )
-    return "\n\n".join(parts)
+    """Backward-compatible shim; canonical impl lives in `rag.context_builder`."""
+    from .context_builder import build_internal_context
+    return build_internal_context(retrieved_docs)
 
 
 def build_single_context(doc: Dict[str, Any], retriever: Optional["RAGRetriever"] = None) -> str:
-    """
-    Format a single document (post) and its comments into context string for LLM.
-    
-    Args:
-        doc: Document dictionary (should be a post)
-        retriever: RAGRetriever instance to access comments cache
-    """
-    meta = doc.get("source", {})
-    link = meta.get("permalink_url") or ""
-    post_id = meta.get("post_id")
-    
-    context_parts = [
-        "=== BAI VIET ===",
-        f"text: {doc['text']}",
-        f"source: {link}",
-    ]
-    
-    # Lấy comments của bài viết này nếu có retriever và post_id
-    comments_text = []
-    if retriever and post_id and hasattr(retriever, 'comments_by_post'):
-        comments = retriever.comments_by_post.get(post_id, [])
-        if comments:
-            comments_text.append("\n=== COMMENTS ===")
-            for i, cmt in enumerate(comments, start=1):
-                comment_text = cmt.get("text", "").strip()
-                if comment_text and comment_text != "[NO_MESSAGE]":
-                    comments_text.append(f"Comment {i}: {comment_text}")
-    
-    if comments_text:
-        context_parts.extend(comments_text)
-    
-    return "\n".join(context_parts)
+    """Backward-compatible shim used by `chat_cli.py`."""
+    from .context_builder import build_post_with_comments_context
+
+    comments_by_post = None
+    if retriever is not None and hasattr(retriever, "comments_by_post"):
+        comments_by_post = retriever.comments_by_post
+    return build_post_with_comments_context(doc, comments_by_post)
 
 
 def build_prompt(user_question: str, context: str) -> str:
-    """Build prompt for LLM providers (Ollama, OpenAI, Groq, etc.)."""
-    return (
-        "Ban la tro ly tra loi cau hoi CHI DUA TREN noi dung trong context duoc cung cap.\n"
-        "YEU CAU:\n"
-        "- Chi su dung thong tin co trong context (BAI VIET va COMMENTS), TUYET DOI khong duoc suy doan hoac bia noi dung.\n"
-        "- Neu BAI VIET va COMMENTS co nhieu quan diem khac nhau, hay tong hop va phan anh ca hai phia mot cach ngan gon.\n"
-        "- Noi dung tu COMMENTS chi duoc su dung khi thuoc dung bai viet dang duoc tra loi.\n"
-        "- Tra loi ngan gon, day du y chinh, toi uu token, khong lan man.\n"
-        "- Neu khong tim duoc cau tra loi trong context (bao gom ca BAI VIET va COMMENTS), hay tra loi: 'Hiện chưa có dữ liệu để trả lời câu hỏi này.'\n\n"
-        f"=== CONTEXT ===\n{context}\n\n"
-        f"=== CAU HOI NGUOI DUNG ===\n{user_question}\n\n"
-        "=== TRA LOI ===\n"
-    )
+    """Backward-compatible shim; the orchestrator now uses `Synthesizer`."""
+    from src.llm.synthesizer import build_internal_prompt
+    return build_internal_prompt(user_question, context)
 

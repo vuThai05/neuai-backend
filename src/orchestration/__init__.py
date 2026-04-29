@@ -1,7 +1,11 @@
-"""Orchestration layer: schemas, decision engine, chat orchestrator."""
+"""Orchestration layer: schemas, decision engine, chat orchestrator.
 
-from .chat_orchestrator import ChatOrchestrator
-from .decision_engine import compute_signals, decide
+`ChatOrchestrator` is exposed lazily via PEP 562 `__getattr__` to avoid a
+circular import: the orchestrator depends on `src.rag.scoring`, which in
+turn imports schemas from this package.
+"""
+
+from .decision_engine import decide
 from .schemas import (
     ChatRequest,
     ChatResponse,
@@ -17,6 +21,12 @@ __all__ = [
     "Decision",
     "RetrievalSignals",
     "Source",
-    "compute_signals",
     "decide",
 ]
+
+
+def __getattr__(name: str):  # PEP 562 lazy attribute access
+    if name == "ChatOrchestrator":
+        from .chat_orchestrator import ChatOrchestrator
+        return ChatOrchestrator
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

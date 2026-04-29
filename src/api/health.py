@@ -15,8 +15,12 @@ async def health(request: Request) -> dict:
         "ollama": getattr(state, "ollama_client", None) is not None,
         "chatlog": getattr(state, "chatlog_repo", None) is not None,
         "orchestrator": getattr(state, "orchestrator", None) is not None,
+        "synthesizer": getattr(state, "synthesizer", None) is not None,
+        "web_service": getattr(state, "web_service", None) is not None,
     }
+    # web_service is optional; treat its absence as fine, not degraded.
+    required = {k: v for k, v in components.items() if k != "web_service"}
     return {
-        "status": "ok" if all(components.values()) else "degraded",
+        "status": "ok" if all(required.values()) else "degraded",
         "components": components,
     }
