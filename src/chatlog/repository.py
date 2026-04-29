@@ -8,7 +8,7 @@ from pymongo.collection import Collection
 
 from src.utils.config import MONGO_DB_NAME, get_mongo_client
 
-from .models import ChatLog, ChatMessage, SourceRef
+from .models import ChatLog, ChatMessage, DecisionLog, SourceRef
 
 
 class ChatLogRepository:
@@ -35,8 +35,7 @@ class ChatLogRepository:
         """Create a new conversation with the first user message."""
         now = self._get_current_timestamp()
         conv_id = self._generate_id("conv")
-        
-        # Use first 50 chars of message as title
+
         title = first_user_message[:50]
         if len(first_user_message) > 50:
             title += "..."
@@ -57,7 +56,6 @@ class ChatLogRepository:
             ],
         )
 
-        # Insert into MongoDB
         self.collection.insert_one(self._model_to_dict(chat_log))
         return chat_log
 
@@ -66,22 +64,23 @@ class ChatLogRepository:
         conversation_id: str,
         content: str,
         sources: Optional[List[Dict[str, Any]]] = None,
+        decision: Optional[Dict[str, Any]] = None,
     ) -> ChatLog:
-        """Add assistant response to existing conversation."""
+        """Add assistant response (with optional sources and decision) to an existing conversation."""
         now = self._get_current_timestamp()
-        
-        # Convert sources to SourceRef objects
-        refs = None
+
+        refs: Optional[List[SourceRef]] = None
         if sources:
-            refs = [
-                SourceRef(
-                    link=src.get("link", ""),
-                    text=src.get("text", ""),
-                    score=src.get("score"),
-                    dense_score=src.get("dense_score"),
-                )
-                for src in sources
-            ]
+            refs = [self._coerce_source_ref(src) for src in sources]
+
+        decision_model: Optional[DecisionLog] = None
+        if decision:
+            decision_model = DecisionLog(
+                route=str(decision.get("route", "")),
+                reason_code=str(decision.get("reason_code", "")),
+                reason=str(decision.get("reason", "")),
+                confidence=float(decision.get("confidence", 0.0)),
+            )
 
         assistant_message = ChatMessage(
             id=self._generate_id("msg"),
@@ -89,9 +88,9 @@ class ChatLogRepository:
             content=content,
             timestamp=now,
             refs=refs,
+            decision=decision_model,
         )
 
-        # Update conversation in MongoDB
         result = self.collection.update_one(
             {"id": conversation_id},
             {
@@ -103,7 +102,6 @@ class ChatLogRepository:
         if result.matched_count == 0:
             raise ValueError(f"Conversation {conversation_id} not found")
 
-        # Fetch and return updated conversation
         return self.get_conversation(conversation_id)
 
     def add_user_message(
@@ -120,7 +118,6 @@ class ChatLogRepository:
             refs=None,
         )
 
-        # Update conversation in MongoDB
         result = self.collection.update_one(
             {"id": conversation_id},
             {
@@ -156,6 +153,27 @@ class ChatLogRepository:
         return result.deleted_count > 0
 
     @staticmethod
+    def _coerce_source_ref(src: Dict[str, Any]) -> SourceRef:
+        """Build a `SourceRef` from either the new schema or a legacy record."""
+        if any(key in src for key in ("snippet", "url", "type", "title")):
+            return SourceRef(
+                type=str(src.get("type", "internal")),
+                title=str(src.get("title", "")),
+                url=src.get("url"),
+                snippet=str(src.get("snippet", "")),
+                score=src.get("score"),
+            )
+
+        # Legacy shape from pre-AI-Agent records: {link, text, score, dense_score}.
+        return SourceRef(
+            type="internal",
+            title="",
+            url=src.get("link"),
+            snippet=str(src.get("text", "")),
+            score=src.get("score"),
+        )
+
+    @staticmethod
     def _model_to_dict(chat_log: ChatLog) -> Dict[str, Any]:
         """Convert ChatLog model to MongoDB document."""
         return {
@@ -172,51 +190,73 @@ class ChatLogRepository:
     @staticmethod
     def _message_to_dict(message: ChatMessage) -> Dict[str, Any]:
         """Convert ChatMessage model to MongoDB document."""
-        msg_dict = {
+        msg_dict: Dict[str, Any] = {
             "id": message.id,
             "type": message.type,
             "content": message.content,
             "timestamp": message.timestamp,
         }
+
         if message.refs:
             msg_dict["refs"] = [
                 {
-                    "link": ref.link,
-                    "text": ref.text,
+                    "type": ref.type,
+                    "title": ref.title,
+                    "url": ref.url,
+                    "snippet": ref.snippet,
                     "score": ref.score,
-                    "dense_score": ref.dense_score,
                 }
                 for ref in message.refs
             ]
         else:
             msg_dict["refs"] = None
+
+        if message.decision:
+            msg_dict["decision"] = {
+                "route": message.decision.route,
+                "reason_code": message.decision.reason_code,
+                "reason": message.decision.reason,
+                "confidence": message.decision.confidence,
+            }
+        else:
+            msg_dict["decision"] = None
+
         return msg_dict
 
     @staticmethod
     def _dict_to_model(doc: Dict[str, Any]) -> ChatLog:
-        """Convert MongoDB document to ChatLog model."""
-        messages = []
+        """Convert MongoDB document to ChatLog model.
+
+        Tolerates legacy records that used the old `{link, text, score, dense_score}`
+        source format and have no `decision` field.
+        """
+        messages: List[ChatMessage] = []
         for msg_doc in doc.get("messages", []):
-            refs = None
-            if msg_doc.get("refs"):
-                refs = [
-                    SourceRef(
-                        link=ref.get("link", ""),
-                        text=ref.get("text", ""),
-                        score=ref.get("score"),
-                        dense_score=ref.get("dense_score"),
-                    )
-                    for ref in msg_doc["refs"]
-                ]
-            
-            message = ChatMessage(
-                id=msg_doc.get("id", ""),
-                type=msg_doc.get("type", ""),
-                content=msg_doc.get("content", ""),
-                timestamp=msg_doc.get("timestamp", ""),
-                refs=refs,
+            refs: Optional[List[SourceRef]] = None
+            raw_refs = msg_doc.get("refs")
+            if raw_refs:
+                refs = [ChatLogRepository._coerce_source_ref(ref) for ref in raw_refs]
+
+            decision: Optional[DecisionLog] = None
+            raw_decision = msg_doc.get("decision")
+            if raw_decision:
+                decision = DecisionLog(
+                    route=str(raw_decision.get("route", "")),
+                    reason_code=str(raw_decision.get("reason_code", "")),
+                    reason=str(raw_decision.get("reason", "")),
+                    confidence=float(raw_decision.get("confidence", 0.0)),
+                )
+
+            messages.append(
+                ChatMessage(
+                    id=msg_doc.get("id", ""),
+                    type=msg_doc.get("type", ""),
+                    content=msg_doc.get("content", ""),
+                    timestamp=msg_doc.get("timestamp", ""),
+                    refs=refs,
+                    decision=decision,
+                )
             )
-            messages.append(message)
 
         return ChatLog(
             id=doc.get("id", ""),
